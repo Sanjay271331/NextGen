@@ -1,171 +1,90 @@
-import { Router, Request, Response } from 'express';
-import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { Router, Request, Response, NextFunction } from 'express';
+import { requireAuth } from '../middleware/auth.js';
 import * as domainService from '../services/domain.service.js';
-import { createAuditLog } from '../services/audit.service.js';
-import {
-  listAllDomains,
-  saveDomain,
-  getDomainByIdOrSlug,
-  updateDomainRecord,
-  deleteDomainRecord,
-} from '../utils/persistentStore.js';
 
 const router = Router();
 router.use(requireAuth);
 
 /**
- * GET /api/domains
+ * GET /api/domains — List all domains
  */
-router.get('/', requirePermission('domains:read'), async (_req: Request, res: Response) => {
+router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const domains = await domainService.listDomains();
-    if (domains && domains.length > 0) {
-      return res.json({ success: true, data: domains });
-    }
-  } catch {
-    // Database offline fallback
+    res.json({ success: true, data: domains });
+  } catch (err) {
+    next(err);
   }
-
-  const localDomains = listAllDomains();
-  res.json({ success: true, data: localDomains });
 });
 
 /**
- * POST /api/domains
+ * POST /api/domains — Create a new domain
  */
-router.post('/', requirePermission('domains:write'), async (req: Request, res: Response) => {
-  const { name, slug } = req.body;
-  if (!name || !slug) {
-    return res.status(400).json({ success: false, error: 'Name and slug are required' });
-  }
-
-  let domain: any = null;
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    domain = await domainService.createDomain(req.body);
-  } catch {
-    // Database offline fallback
-  }
-
-  // Persist into store
-  const saved = saveDomain({
-    ...req.body,
-    id: domain?.id,
-  });
-
-  try {
-    await createAuditLog({
-      adminId: req.admin!.id,
-      adminEmail: req.admin!.email,
-      action: 'CREATE_DOMAIN',
-      resource: 'domain',
-      resourceId: saved.id,
-      newValue: { name: saved.name, slug: saved.slug },
-      ipAddress: req.ip,
-    });
-  } catch {}
-
-  res.status(201).json({ success: true, data: saved });
-});
-
-/**
- * POST /api/domains/sync — Sync domains from admin UI to persistent store
- */
-router.post('/sync', requirePermission('domains:write'), async (req: Request, res: Response) => {
-  const { domains } = req.body;
-  if (Array.isArray(domains)) {
-    for (const d of domains) {
-      if (d && d.name && d.slug) {
-        saveDomain(d);
-      }
+    const { name, slug } = req.body;
+    if (!name || !slug) {
+      return res.status(400).json({ success: false, error: 'Name and slug are required' });
     }
+
+    const domain = await domainService.createDomain(req.body);
+    res.status(201).json({ success: true, data: domain });
+  } catch (err) {
+    next(err);
   }
-  res.json({ success: true, data: listAllDomains() });
 });
 
 /**
- * GET /api/domains/:id
+ * GET /api/domains/:id — Get domain by ID
  */
-router.get('/:id', requirePermission('domains:read'), async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const domain = await domainService.getDomain(req.params.id);
-    if (domain) return res.json({ success: true, data: domain });
-  } catch {}
-
-  const local = getDomainByIdOrSlug(req.params.id);
-  if (local) return res.json({ success: true, data: local });
-
-  res.status(404).json({ success: false, error: 'Domain not found' });
+    res.json({ success: true, data: domain });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**
- * PUT /api/domains/:id
+ * PUT /api/domains/:id — Update a domain
  */
-router.put('/:id', requirePermission('domains:write'), async (req: Request, res: Response) => {
-  let domain: any = null;
+router.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    domain = await domainService.updateDomain(req.params.id, req.body);
-  } catch {}
-
-  const updated = updateDomainRecord(req.params.id, req.body);
-
-  try {
-    await createAuditLog({
-      adminId: req.admin!.id,
-      adminEmail: req.admin!.email,
-      action: 'UPDATE_DOMAIN',
-      resource: 'domain',
-      resourceId: req.params.id,
-      ipAddress: req.ip,
-    });
-  } catch {}
-
-  res.json({ success: true, data: domain || updated });
+    const domain = await domainService.updateDomain(req.params.id, req.body);
+    res.json({ success: true, data: domain });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**
- * DELETE /api/domains/:id
+ * POST /api/domains/:id/status — Toggle domain active/inactive status
  */
-router.delete('/:id', requirePermission('domains:write'), async (req: Request, res: Response) => {
+router.post('/:id/status', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { status } = req.body;
+    if (!status || !['ACTIVE', 'INACTIVE'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Status must be ACTIVE or INACTIVE' });
+    }
+
+    const domain = await domainService.updateDomain(req.params.id, { status });
+    res.json({ success: true, data: domain });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/domains/:id — Archive/delete domain
+ */
+router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     await domainService.softDeleteDomain(req.params.id);
-  } catch {}
-
-  deleteDomainRecord(req.params.id);
-
-  try {
-    await createAuditLog({
-      adminId: req.admin!.id,
-      adminEmail: req.admin!.email,
-      action: 'DELETE_DOMAIN',
-      resource: 'domain',
-      resourceId: req.params.id,
-      ipAddress: req.ip,
-    });
-  } catch {}
-
-  res.json({ success: true, message: 'Domain archived' });
-});
-
-/**
- * GET /api/domains/:id/stats
- */
-router.get('/:id/stats', requirePermission('domains:read'), async (req: Request, res: Response) => {
-  try {
-    const stats = await domainService.getDomainStats(req.params.id);
-    return res.json({ success: true, data: stats });
-  } catch {}
-
-  const local = getDomainByIdOrSlug(req.params.id);
-  res.json({
-    success: true,
-    data: {
-      total: local?.registrationCount || 0,
-      shortlisted: local?.shortlistedCount || 0,
-      confirmed: 0,
-      rejected: 0,
-      byTrack: {},
-    },
-  });
+    res.json({ success: true, message: 'Domain archived successfully' });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export { router as domainRoutes };

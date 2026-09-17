@@ -12,32 +12,17 @@ export function getDomainRegistrationState(domain: {
   registrationEnd: Date | null;
   maxRegistrations: number | null;
   registrationCount: number;
-  registrationEmailTemplateId?: string | null;
   form?: {
     versions?: Array<{ publishedAt?: Date | null }>;
   } | null;
 }): RegistrationState {
   if (domain.status !== 'ACTIVE') return RegistrationState.DISABLED;
 
-  // Both published form AND assigned email template are strictly mandatory!
-  // If either is missing, registration is paused.
-  const hasPublishedForm = Boolean(
-    domain.form?.versions &&
-    domain.form.versions.some(v => v.publishedAt !== null && v.publishedAt !== undefined)
-  );
-  const hasAssignedEmail = Boolean(
-    domain.registrationEmailTemplateId &&
-    domain.registrationEmailTemplateId.trim().length > 0
-  );
-
-  if (!hasPublishedForm || !hasAssignedEmail) {
-    return RegistrationState.PAUSED;
-  }
-
   const now = new Date();
   if (domain.registrationStart && now < domain.registrationStart) return RegistrationState.NOT_STARTED;
   if (domain.registrationEnd && now > domain.registrationEnd) return RegistrationState.CLOSED;
   if (domain.maxRegistrations && domain.registrationCount >= domain.maxRegistrations) return RegistrationState.FULL;
+
   return RegistrationState.OPEN;
 }
 
@@ -54,19 +39,23 @@ export async function createDomain(data: {
   maxRegistrations?: number;
   spreadsheetId?: string;
   worksheetName?: string;
-  driveFolderId?: string;
-  registrationEmailTemplateId?: string;
-  shortlistEmailTemplateId?: string;
   status?: string;
 }) {
+  const normalizedSlug = data.slug.toLowerCase().trim();
+
   // Check slug uniqueness
-  const existing = await prisma.domain.findUnique({ where: { slug: data.slug } });
+  const existing = await prisma.domain.findUnique({ where: { slug: normalizedSlug } });
   if (existing) throw new AppError('A domain with this slug already exists', 409);
+
+  // Check if a global form is published to link automatically
+  const globalForm = await prisma.form.findFirst({
+    where: { isGlobal: true, status: 'PUBLISHED', deletedAt: null },
+  });
 
   const domain = await prisma.domain.create({
     data: {
-      name: data.name,
-      slug: data.slug,
+      name: data.name.trim(),
+      slug: normalizedSlug,
       description: data.description,
       eventDate: data.eventDate ? new Date(data.eventDate) : null,
       registrationStart: data.registrationStart ? new Date(data.registrationStart) : null,
@@ -74,9 +63,7 @@ export async function createDomain(data: {
       maxRegistrations: data.maxRegistrations,
       spreadsheetId: data.spreadsheetId,
       worksheetName: data.worksheetName || 'Registrations',
-      driveFolderId: data.driveFolderId,
-      registrationEmailTemplateId: data.registrationEmailTemplateId,
-      shortlistEmailTemplateId: data.shortlistEmailTemplateId,
+      formId: globalForm?.id || null,
       status: data.status || 'ACTIVE',
     },
   });
@@ -93,7 +80,7 @@ export async function listDomains(includeArchived = false) {
   return prisma.domain.findMany({
     where,
     include: {
-      form: { select: { id: true, title: true, status: true } },
+      form: { select: { id: true, title: true, status: true, isGlobal: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -109,6 +96,7 @@ export async function getDomain(id: string) {
       form: {
         include: {
           versions: {
+            where: { publishedAt: { not: null } },
             orderBy: { version: 'desc' },
             take: 1,
             include: { fields: { orderBy: { order: 'asc' } } },
@@ -117,12 +105,13 @@ export async function getDomain(id: string) {
       },
     },
   });
-  if (!domain) throw new AppError('Domain not found', 404);
+
+  if (!domain || domain.deletedAt) throw new AppError('Domain not found', 404);
   return domain;
 }
 
 /**
- * Get domain by slug (public)
+ * Get domain by slug (for public registration)
  */
 export async function getDomainBySlug(slug: string) {
   const domain = await prisma.domain.findUnique({
@@ -140,87 +129,87 @@ export async function getDomainBySlug(slug: string) {
       },
     },
   });
-  if (!domain) throw new AppError('Event not found', 404);
+
+  if (!domain || domain.deletedAt) return null;
+
+  // If domain has no form or no version, fallback to global form
+  if (!domain.form?.versions?.[0]) {
+    const globalForm = await prisma.form.findFirst({
+      where: { isGlobal: true, status: 'PUBLISHED', deletedAt: null },
+      include: {
+        versions: {
+          where: { publishedAt: { not: null } },
+          orderBy: { version: 'desc' },
+          take: 1,
+          include: { fields: { orderBy: { order: 'asc' } } },
+        },
+      },
+    });
+    if (globalForm?.versions?.[0]) {
+      return { ...domain, form: globalForm };
+    }
+  }
+
   return domain;
 }
 
 /**
  * Update domain
  */
-export async function updateDomain(id: string, data: Record<string, unknown>) {
+export async function updateDomain(id: string, data: {
+  name?: string;
+  slug?: string;
+  description?: string;
+  eventDate?: string;
+  registrationStart?: string;
+  registrationEnd?: string;
+  maxRegistrations?: number;
+  spreadsheetId?: string;
+  worksheetName?: string;
+  status?: string;
+  formId?: string | null;
+}) {
   const domain = await prisma.domain.findUnique({ where: { id } });
-  if (!domain) throw new AppError('Domain not found', 404);
+  if (!domain || domain.deletedAt) throw new AppError('Domain not found', 404);
 
-  // Check slug uniqueness if changing
   if (data.slug && data.slug !== domain.slug) {
-    const existing = await prisma.domain.findUnique({ where: { slug: data.slug as string } });
+    const existing = await prisma.domain.findUnique({ where: { slug: data.slug } });
     if (existing) throw new AppError('A domain with this slug already exists', 409);
   }
 
-  const updateData: Record<string, unknown> = {};
-  const allowedFields = [
-    'name', 'slug', 'description', 'maxRegistrations',
-    'spreadsheetId', 'worksheetName', 'driveFolderId',
-    'registrationEmailTemplateId', 'shortlistEmailTemplateId',
-    'status', 'formId',
-  ];
+  const updated = await prisma.domain.update({
+    where: { id },
+    data: {
+      name: data.name !== undefined ? data.name.trim() : undefined,
+      slug: data.slug !== undefined ? data.slug.toLowerCase().trim() : undefined,
+      description: data.description !== undefined ? data.description : undefined,
+      eventDate: data.eventDate ? new Date(data.eventDate) : undefined,
+      registrationStart: data.registrationStart ? new Date(data.registrationStart) : undefined,
+      registrationEnd: data.registrationEnd ? new Date(data.registrationEnd) : undefined,
+      maxRegistrations: data.maxRegistrations !== undefined ? data.maxRegistrations : undefined,
+      spreadsheetId: data.spreadsheetId !== undefined ? data.spreadsheetId : undefined,
+      worksheetName: data.worksheetName !== undefined ? data.worksheetName : undefined,
+      status: data.status !== undefined ? data.status : undefined,
+      formId: data.formId !== undefined ? data.formId : undefined,
+    },
+  });
 
-  for (const field of allowedFields) {
-    if (data[field] !== undefined) updateData[field] = data[field];
-  }
-
-  // Handle date fields
-  if (data.eventDate !== undefined) updateData.eventDate = data.eventDate ? new Date(data.eventDate as string) : null;
-  if (data.registrationStart !== undefined) updateData.registrationStart = data.registrationStart ? new Date(data.registrationStart as string) : null;
-  if (data.registrationEnd !== undefined) updateData.registrationEnd = data.registrationEnd ? new Date(data.registrationEnd as string) : null;
-
-  return prisma.domain.update({ where: { id }, data: updateData });
+  logger.info('Domain updated', { id });
+  return updated;
 }
 
 /**
  * Soft delete domain
  */
 export async function softDeleteDomain(id: string) {
-  const domain = await prisma.domain.findUnique({
-    where: { id },
-    include: {
-      _count: { select: { registrations: true } },
-    },
-  });
+  const domain = await prisma.domain.findUnique({ where: { id } });
   if (!domain) throw new AppError('Domain not found', 404);
 
-  return prisma.domain.update({
+  await prisma.domain.update({
     where: { id },
     data: { deletedAt: new Date(), status: 'ARCHIVED' },
   });
-}
 
-/**
- * Get domain statistics
- */
-export async function getDomainStats(id: string) {
-  const [registrationsByStatus, recentRegistrations] = await Promise.all([
-    prisma.registration.groupBy({
-      by: ['status'],
-      where: { domainId: id, deletedAt: null },
-      _count: { id: true },
-    }),
-    prisma.registration.findMany({
-      where: { domainId: id, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: {
-        id: true, registrationId: true, teamName: true,
-        email: true, status: true, createdAt: true,
-      },
-    }),
-  ]);
-
-  return {
-    registrationsByStatus: registrationsByStatus.map(r => ({
-      status: r.status,
-      count: r._count.id,
-    })),
-    recentRegistrations,
-  };
+  logger.info('Domain archived', { id });
+  return { success: true };
 }

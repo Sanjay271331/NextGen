@@ -1,7 +1,7 @@
 import crypto from 'crypto';
-import { REGISTRATION_ID_PREFIX } from '@ngb/shared';
 
 const ALGORITHM = 'aes-256-gcm';
+const REGISTRATION_ID_PREFIX = 'NGB';
 
 /**
  * Encrypt a string using AES-256-GCM
@@ -37,52 +37,23 @@ export function decrypt(encryptedText: string): string {
 
 /**
  * Generate a unique, human-readable registration ID
- * Format: NGB-YYMMDD-XXXXX (e.g., NGB-260916-00042)
+ * Format: NGB-YYMMDD-XXXXX (e.g., NGB-260918-12345)
  */
-export function generateRegistrationId(sequenceNum: number): string {
+export function generateRegistrationId(sequenceNum?: number): string {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(-2);
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
-  const seq = String(sequenceNum).padStart(5, '0');
+  const seq = sequenceNum !== undefined
+    ? String(sequenceNum).padStart(5, '0')
+    : String(Math.floor(10000 + Math.random() * 90000));
+
   return `${REGISTRATION_ID_PREFIX}-${yy}${mm}${dd}-${seq}`;
 }
 
 /**
- * Generate a random verification code (numeric)
- */
-export function generateVerificationCode(length: number = 6): string {
-  const digits = '0123456789';
-  let code = '';
-  const bytes = crypto.randomBytes(length);
-  for (let i = 0; i < length; i++) {
-    code += digits[bytes[i] % 10];
-  }
-  return code;
-}
-
-/**
- * Hash a string using SHA-256
- */
-export function hashString(input: string): string {
-  return crypto.createHash('sha256').update(input).digest('hex');
-}
-
-/**
- * Generate a secure random token
+ * Generate a random secure token
  */
 export function generateSecureToken(bytes: number = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
-}
-
-/**
- * Sanitize user input for safe display
- */
-export function sanitizeString(input: string): string {
-  return input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
 }

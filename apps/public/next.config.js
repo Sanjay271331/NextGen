@@ -9,15 +9,6 @@ const nextConfig = {
       },
     ];
   },
-  async redirects() {
-    return [
-      {
-        source: '/admin',
-        destination: process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001',
-        permanent: false,
-      },
-    ];
-  },
 };
 
 module.exports = nextConfig;

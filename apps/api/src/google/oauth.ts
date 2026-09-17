@@ -3,13 +3,10 @@ import { prisma } from '../utils/prisma.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 import { logger } from '../utils/logger.js';
 
+// Scopes required solely for Google Sheets synchronization
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile',
 ];
 
 /**
@@ -19,38 +16,22 @@ export function createOAuth2Client(redirectUri?: string) {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    redirectUri || process.env.GOOGLE_REDIRECT_URI,
+    redirectUri || getSheetsRedirectUri(),
   );
 }
 
 /**
- * Get Integration redirect URI
+ * Get Google Sheets redirect URI
  */
-export function getIntegrationRedirectUri(): string {
-  return process.env.GOOGLE_INTEGRATE_REDIRECT_URI || `${process.env.API_URL || 'http://localhost:4000'}/api/auth/google/integrate/callback`;
+export function getSheetsRedirectUri(): string {
+  return process.env.GOOGLE_INTEGRATE_REDIRECT_URI || `${process.env.API_URL || 'http://localhost:4000'}/api/auth/google/sheets/callback`;
 }
 
 /**
- * Generate Google OAuth authorization URL for admin login
+ * Generate Google OAuth authorization URL for Google Sheets integration
  */
-export function getAdminAuthUrl(state: string): string {
+export function getSheetsAuthUrl(state: string): string {
   const oauth2Client = createOAuth2Client();
-  return oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: [
-      'https://www.googleapis.com/auth/userinfo.email',
-      'https://www.googleapis.com/auth/userinfo.profile',
-    ],
-    state,
-    prompt: 'consent',
-  });
-}
-
-/**
- * Generate Google OAuth authorization URL for Google API integration
- */
-export function getIntegrationAuthUrl(state: string): string {
-  const oauth2Client = createOAuth2Client(getIntegrationRedirectUri());
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
@@ -80,12 +61,11 @@ export async function getGoogleUserInfo(accessToken: string) {
   return {
     email: data.email!,
     name: data.name || data.email!,
-    picture: data.picture || undefined,
   };
 }
 
 /**
- * Get authenticated OAuth2 client for Google API operations
+ * Get authenticated OAuth2 client for Google Sheets operations
  */
 export async function getAuthenticatedClient() {
   const integration = await prisma.googleIntegration.findFirst({
@@ -94,7 +74,7 @@ export async function getAuthenticatedClient() {
   });
 
   if (!integration) {
-    throw new Error('No active Google integration found. Please connect a Google account from the admin dashboard.');
+    throw new Error('Google Sheets is not configured. Please connect a Google account from the admin settings.');
   }
 
   const oauth2Client = createOAuth2Client();
@@ -109,7 +89,7 @@ export async function getAuthenticatedClient() {
       expiry_date: integration.tokenExpiry.getTime(),
     });
 
-    // Token refresh is handled automatically by the googleapis library
+    // Auto-refresh token listener
     oauth2Client.on('tokens', async (tokens) => {
       if (tokens.access_token) {
         await prisma.googleIntegration.update({
@@ -126,37 +106,37 @@ export async function getAuthenticatedClient() {
     return oauth2Client;
   } catch (err) {
     logger.error('Failed to create authenticated Google client', { error: (err as Error).message });
-    throw new Error('Google integration authentication failed. Please reconnect your Google account.');
+    throw new Error('Google Sheets integration authentication failed. Please reconnect your account.');
   }
 }
 
 /**
- * Store Google integration tokens
+ * Store Google Sheets integration tokens
  */
-export async function storeIntegrationTokens(
+export async function storeSheetsTokens(
   adminId: string,
   email: string,
   tokens: { access_token?: string | null; refresh_token?: string | null; expiry_date?: number | null },
 ) {
-  if (!tokens.access_token || !tokens.refresh_token) {
-    throw new Error('Missing required tokens');
+  if (!tokens.access_token) {
+    throw new Error('Missing required OAuth access token');
   }
 
-  // Deactivate all existing integrations to strictly hold ONLY ONE active sender account
+  // Ensure only one active Google account is held
   await prisma.googleIntegration.updateMany({
     data: { isActive: false },
   });
 
+  const refreshToken = tokens.refresh_token || tokens.access_token;
+
   const data = {
     email,
     accessToken: encrypt(tokens.access_token),
-    refreshToken: encrypt(tokens.refresh_token),
+    refreshToken: encrypt(refreshToken),
     tokenExpiry: new Date(tokens.expiry_date || Date.now() + 3600000),
-    scopes: SCOPES,
+    scopes: JSON.stringify(SCOPES),
     isActive: true,
     sheetsConnected: true,
-    driveConnected: true,
-    gmailConnected: true,
   };
 
   await prisma.googleIntegration.upsert({
@@ -165,36 +145,5 @@ export async function storeIntegrationTokens(
     update: data,
   });
 
-  logger.info('Single active Google sender account stored', { adminId, email });
-}
-
-/**
- * Test Google Sheets connection
- */
-export async function testSheetsConnection(): Promise<boolean> {
-  try {
-    const auth = await getAuthenticatedClient();
-    const sheets = google.sheets({ version: 'v4', auth });
-    // Try to access a test spreadsheet
-    await sheets.spreadsheets.get({
-      spreadsheetId: process.env.GOOGLE_DEFAULT_SPREADSHEET_ID || 'test',
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Test Gmail connection
- */
-export async function testGmailConnection(): Promise<boolean> {
-  try {
-    const auth = await getAuthenticatedClient();
-    const gmail = google.gmail({ version: 'v1', auth });
-    await gmail.users.getProfile({ userId: 'me' });
-    return true;
-  } catch {
-    return false;
-  }
+  logger.info('Google Sheets account connected successfully', { adminId, email });
 }

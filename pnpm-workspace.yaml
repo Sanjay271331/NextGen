@@ -2,8 +2,10 @@ packages:
   - 'packages/*'
   - 'apps/*'
 allowBuilds:
+  '@firebase/util': true
   '@prisma/client': true
   '@prisma/engines': true
   esbuild: true
   msgpackr-extract: true
   prisma: true
+  protobufjs: true

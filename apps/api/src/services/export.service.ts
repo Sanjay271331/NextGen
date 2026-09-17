@@ -90,7 +90,7 @@ export async function exportRegistrations(options: {
 
   // Add data rows
   for (const reg of registrations) {
-    const values = reg.values as Record<string, unknown>;
+    const values = (typeof reg.values === 'string' ? JSON.parse(reg.values || '{}') : reg.values) as Record<string, unknown>;
     const row: Record<string, unknown> = {
       registrationId: reg.registrationId,
       domain: reg.domain.name,
@@ -129,45 +129,3 @@ export async function exportRegistrations(options: {
   return Buffer.from(buffer);
 }
 
-/**
- * Parse uploaded Excel file for shortlist import
- */
-export async function parseExcelFile(fileBuffer: Buffer): Promise<{
-  headers: string[];
-  rows: Record<string, unknown>[];
-  totalRows: number;
-}> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(fileBuffer as any);
-
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) throw new AppError('No worksheet found in the uploaded file', 400);
-
-  const headers: string[] = [];
-  const headerRow = worksheet.getRow(1);
-  headerRow.eachCell((cell, colNumber) => {
-    headers.push(String(cell.value || `Column_${colNumber}`).trim());
-  });
-
-  if (headers.length === 0) throw new AppError('No headers found in the uploaded file', 400);
-
-  const rows: Record<string, unknown>[] = [];
-  worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return; // Skip header row
-
-    const rowData: Record<string, unknown> = {};
-    row.eachCell((cell, colNumber) => {
-      const header = headers[colNumber - 1];
-      if (header) {
-        rowData[header] = cell.value;
-      }
-    });
-
-    // Only add non-empty rows
-    if (Object.values(rowData).some(v => v !== null && v !== undefined && v !== '')) {
-      rows.push(rowData);
-    }
-  });
-
-  return { headers, rows, totalRows: rows.length };
-}

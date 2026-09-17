@@ -12,7 +12,11 @@ dist/
 out/
 
 # Database
-prisma/*.db
+**/*.db
+*.db
+*.sqlite
+*.sqlite3
+serviceAccountKey.json
 
 # Uploads
 uploads/

@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { CAPTCHA_SCORE_THRESHOLD } from '@ngb/shared';
 import { AppError } from './errorHandler.js';
 import { logger } from '../utils/logger.js';
+
+const CAPTCHA_SCORE_THRESHOLD = 0.5;
 
 /**
  * Verify Google reCAPTCHA v3 token server-side
@@ -10,7 +11,6 @@ export async function verifyCaptcha(req: Request, _res: Response, next: NextFunc
   const captchaEnabled = process.env.RECAPTCHA_SECRET_KEY && process.env.RECAPTCHA_SECRET_KEY !== 'your-recaptcha-secret-key';
 
   if (!captchaEnabled) {
-    logger.warn('reCAPTCHA is not configured, skipping verification');
     next();
     return;
   }
@@ -38,21 +38,16 @@ export async function verifyCaptcha(req: Request, _res: Response, next: NextFunc
       'error-codes'?: string[];
     };
 
-    if (!data.success) {
-      logger.warn('reCAPTCHA verification failed', { errors: data['error-codes'] });
-      throw new AppError('CAPTCHA verification failed. Please try again.', 400);
-    }
-
-    const threshold = parseFloat(process.env.CAPTCHA_SCORE_THRESHOLD || String(CAPTCHA_SCORE_THRESHOLD));
-    if (data.score !== undefined && data.score < threshold) {
-      logger.warn('reCAPTCHA score too low', { score: data.score, threshold });
-      throw new AppError('Request blocked due to suspicious activity.', 403);
+    if (!data.success || (data.score !== undefined && data.score < CAPTCHA_SCORE_THRESHOLD)) {
+      logger.warn('reCAPTCHA verification failed', { score: data.score });
+      throw new AppError('Security check failed. Please try again.', 403);
     }
 
     next();
   } catch (err) {
     if (err instanceof AppError) throw err;
     logger.error('reCAPTCHA verification error', { error: (err as Error).message });
-    throw new AppError('CAPTCHA verification service unavailable. Please try again.', 503);
+    // In case of captcha service network outage, allow registration rather than blocking users
+    next();
   }
 }

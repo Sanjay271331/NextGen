@@ -25,16 +25,16 @@ export default function PublicRegisterIndexRedirect() {
 
   return (
     <div style={{
-      minHeight: '100vh', background: '#050a18', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', color: '#94a3b8', fontFamily: 'system-ui, sans-serif',
+      minHeight: '100vh', background: '#02050A', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', color: '#9CA3AF', fontFamily: 'system-ui, sans-serif',
     }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
-          width: 32, height: 32, border: '3px solid rgba(255,255,255,0.1)',
-          borderTopColor: '#06b6d4', borderRadius: '50%', margin: '0 auto 16px',
+          width: 36, height: 36, border: '3px solid rgba(22, 59, 110, 0.4)',
+          borderTopColor: '#e84e1b', borderRadius: '50%', margin: '0 auto 16px',
           animation: 'spin 0.8s linear infinite',
         }} />
-        <p>Loading Registration Portal...</p>
+        <p style={{ letterSpacing: '0.05em', fontWeight: 600 }}>Loading Registration Track...</p>
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

@@ -1,19 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Image from 'next/image';
 
 interface Event {
-  name: string; slug: string; description: string;
-  eventDate: string | null; registrationStart: string | null;
-  registrationEnd: string | null; registrationState: string;
-  maxRegistrations: number | null; registrationCount: number;
-}
-interface ShortlistedTeam {
-  registrationId: string;
-  teamName: string;
-  leaderName?: string;
-  domainName: string;
-  status: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  eventDate: string | null;
+  registrationStart: string | null;
+  registrationEnd: string | null;
+  registrationState: string;
+  maxRegistrations: number | null;
+  registrationCount: number;
 }
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/api\/?$/, '');
@@ -21,15 +20,12 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').re
 export default function HomePage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
-  const [shortlistState, setShortlistState] = useState<{
-    announced: boolean;
-    message: string;
-    teams: ShortlistedTeam[];
-  }>({
-    announced: false,
-    message: 'Results will be announced soon. The organizers and judges are currently evaluating submissions.',
-    teams: [],
-  });
+
+  // Admin Login Modal State
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState('');
 
   const loadEvents = useCallback(() => {
     fetch(`${API_BASE}/api/public/events`)
@@ -43,247 +39,132 @@ export default function HomePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const loadShortlist = useCallback(() => {
-    fetch(`${API_BASE}/api/public/shortlist`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.success) {
-          setShortlistState({
-            announced: data.announced,
-            message: data.message || 'Results will be announced soon',
-            teams: data.teams || [],
-          });
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   useEffect(() => {
     loadEvents();
-    loadShortlist();
-  }, [loadEvents, loadShortlist]);
+  }, [loadEvents]);
 
-  const [adminLinkGenerated, setAdminLinkGenerated] = useState(false);
-  const [participantLinkGenerated, setParticipantLinkGenerated] = useState(false);
-  const [adminCopied, setAdminCopied] = useState(false);
-  const [participantCopied, setParticipantCopied] = useState(false);
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminPassword) {
+      setAdminError('Please enter administrator password.');
+      return;
+    }
+
+    setAdminLoading(true);
+    setAdminError('');
+
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        window.location.href = '/admin';
+      } else {
+        setAdminError(data.error || 'Incorrect administrator password.');
+      }
+    } catch {
+      setAdminError('Unable to reach server. Please check your connection.');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
 
   const statusClass: Record<string, string> = {
-    OPEN: 'status-open', CLOSED: 'status-closed',
-    NOT_STARTED: 'status-not-started', FULL: 'status-closed',
-    DISABLED: 'status-closed', PAUSED: 'status-closed',
+    OPEN: 'status-open',
+    CLOSED: 'status-closed',
+    NOT_STARTED: 'status-not-started',
+    FULL: 'status-closed',
+    DISABLED: 'status-closed',
+    PAUSED: 'status-closed',
   };
 
   const statusLabel: Record<string, string> = {
-    OPEN: '🟢 Open', CLOSED: '🔴 Closed',
-    NOT_STARTED: '🟡 Coming Soon', FULL: '🔴 Full',
-    DISABLED: '🔴 Disabled', PAUSED: '⏸️ Paused (Pending Setup)',
-  };
-
-  const ADMIN_BASE_URL = process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3001';
-  const PARTICIPANT_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const participantUrl = `${PARTICIPANT_BASE_URL.replace(/\/$/, '')}/register`;
-
-  const handleCopyAdmin = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(ADMIN_BASE_URL);
-      setAdminCopied(true);
-      setTimeout(() => setAdminCopied(false), 2000);
-    }
-  };
-
-  const handleCopyParticipant = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(participantUrl);
-      setParticipantCopied(true);
-      setTimeout(() => setParticipantCopied(false), 2000);
-    }
+    OPEN: '🟢 Open',
+    CLOSED: '🔴 Closed',
+    NOT_STARTED: '🟡 Coming Soon',
+    FULL: '🔴 Full',
+    DISABLED: '🔴 Disabled',
+    PAUSED: '⏸️ Paused',
   };
 
   return (
     <>
-      {/* Navigation */}
+      {/* ── Navigation ──────────────────────────────────── */}
       <nav className="nav">
-        <div className="nav-logo">
-          <div className="nav-logo-icon">NGB</div>
+        <a href="/" className="nav-logo">
+          <Image
+            src="/logo.png"
+            alt="NextGen Build-a-thon Logo"
+            width={40}
+            height={40}
+            className="nav-logo-img"
+            priority
+          />
           <span className="nav-logo-text">Next Gen Buildathon</span>
-        </div>
+        </a>
+
         <div className="nav-links">
-          <a href="#events" className="nav-link">Events</a>
-          <a href="#shortlist" className="nav-link">🏆 Shortlisted Teams</a>
-          <a href="/register" className="nav-link">Participant Portal</a>
-          <a href="/status" className="nav-link">Check Status</a>
-          <a
-            href={ADMIN_BASE_URL}
-            className="nav-link"
-            style={{
-              background: 'rgba(6,182,212,0.12)',
-              border: '1px solid rgba(6,182,212,0.3)',
-              borderRadius: 8,
-              padding: '6px 14px',
-              color: '#38bdf8',
-              fontWeight: 700,
+          <a href="#events" className="nav-link">Tracks &amp; Events</a>
+          <button
+            type="button"
+            onClick={() => {
+              setShowAdminModal(true);
+              setAdminError('');
+              setAdminPassword('');
             }}
+            className="nav-admin-btn"
+            title="Unlock Management Console"
           >
-            🛡️ Admin Dashboard
-          </a>
+            <span>🛡️</span> ADMIN
+          </button>
         </div>
       </nav>
 
-      {/* Hero */}
+      {/* ── Hero Section ────────────────────────────────── */}
       <section className="hero">
-        <div className="hero-badge">🚀 Registrations Open for 2026</div>
+        <div className="hero-badge">🚀 Official Registration Portal 2026</div>
+
+        <div className="hero-logo-box">
+          <Image
+            src="/logo.png"
+            alt="NextGen Buildathon Logo"
+            width={130}
+            height={130}
+            className="hero-logo-display"
+            priority
+          />
+        </div>
+
         <h1 className="hero-title">
           Build the <span className="gradient">Future</span> Today
         </h1>
+
         <p className="hero-subtitle">
           Join thousands of innovators, developers, and creators at the biggest buildathon of the year.
-          Push boundaries. Ship products. Win prizes.
+          Select your track below, register your team, and start building.
         </p>
 
-        {/* Two "Generate Link" Action Blocks */}
-        <div className="hero-actions" style={{ display: 'flex', gap: 24, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' }}>
-          {/* Participant Link Generator */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 280, maxWidth: 380, width: '100%' }}>
-            <button
-              type="button"
-              id="generate-participant-btn"
-              onClick={() => setParticipantLinkGenerated(true)}
-              className="btn btn-primary btn-lg"
-              style={{ width: '100%', minWidth: 260, cursor: 'pointer', justifyContent: 'center' }}
-            >
-              🚀 Generate Participant Link
-            </button>
-            {participantLinkGenerated && (
-              <div
-                id="participant-link-output"
-                style={{
-                  marginTop: 12,
-                  padding: '10px 14px',
-                  background: 'rgba(15, 23, 42, 0.95)',
-                  border: '1px solid rgba(16, 185, 129, 0.4)',
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  width: '100%',
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
-                }}
-              >
-                <span
-                  id="participant-link-text"
-                  style={{
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                    color: '#34d399',
-                    userSelect: 'all',
-                    wordBreak: 'break-all',
-                    textAlign: 'left',
-                  }}
-                >
-                  {participantUrl}
-                </span>
-                <button
-                  type="button"
-                  id="copy-participant-btn"
-                  onClick={handleCopyParticipant}
-                  style={{
-                    background: participantCopied ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.08)',
-                    color: participantCopied ? '#34d399' : '#fff',
-                    border: participantCopied ? '1px solid #10b981' : '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: 6,
-                    padding: '6px 12px',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  {participantCopied ? '✓ Copied!' : '📋 Copy'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Admin Link Generator */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 280, maxWidth: 380, width: '100%' }}>
-            <button
-              type="button"
-              id="generate-admin-btn"
-              onClick={() => setAdminLinkGenerated(true)}
-              className="btn btn-outline btn-lg"
-              style={{
-                width: '100%',
-                minWidth: 260,
-                borderColor: '#06b6d4',
-                color: '#38bdf8',
-                background: 'rgba(6,182,212,0.06)',
-                cursor: 'pointer',
-                justifyContent: 'center',
-              }}
-            >
-              🛡️ Generate Admin Link
-            </button>
-            {adminLinkGenerated && (
-              <div
-                id="admin-link-output"
-                style={{
-                  marginTop: 12,
-                  padding: '10px 14px',
-                  background: 'rgba(15, 23, 42, 0.95)',
-                  border: '1px solid rgba(6, 182, 212, 0.4)',
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  width: '100%',
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
-                }}
-              >
-                <span
-                  id="admin-link-text"
-                  style={{
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                    color: '#38bdf8',
-                    userSelect: 'all',
-                    wordBreak: 'break-all',
-                    textAlign: 'left',
-                  }}
-                >
-                  {ADMIN_BASE_URL}
-                </span>
-                <button
-                  type="button"
-                  id="copy-admin-btn"
-                  onClick={handleCopyAdmin}
-                  style={{
-                    background: adminCopied ? 'rgba(6, 182, 212, 0.3)' : 'rgba(255, 255, 255, 0.08)',
-                    color: adminCopied ? '#38bdf8' : '#fff',
-                    border: adminCopied ? '1px solid #06b6d4' : '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: 6,
-                    padding: '6px 12px',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  {adminCopied ? '✓ Copied!' : '📋 Copy'}
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="hero-actions">
+          <a href="#events" className="btn btn-primary btn-lg">
+            Explore Tracks &amp; Register →
+          </a>
         </div>
       </section>
 
-      {/* Events */}
+      {/* ── Active Events / Tracks Section ──────────────── */}
       <section className="events" id="events">
-        <h2 className="events-title">Active Events</h2>
+        <div className="events-header">
+          <span className="events-tag">Registrations Open</span>
+          <h2 className="events-title">Active Tracks &amp; Events</h2>
+          <p className="events-subtitle">
+            Select a hackathon track below to open the official registration form.
+          </p>
+        </div>
 
         {loading ? (
           <div className="events-grid">
@@ -292,45 +173,58 @@ export default function HomePage() {
             ))}
           </div>
         ) : events.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-dim)' }}>
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-dim)' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
-            <p style={{ fontSize: 18 }}>No active events right now. Check back soon!</p>
+            <p style={{ fontSize: 18, color: '#94a3b8' }}>No active events open right now. Check back soon!</p>
           </div>
         ) : (
           <div className="events-grid">
             {events.map(event => (
               <div key={event.slug} className="event-card">
                 <div className="event-card-content">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 8 }}>
-                    <h3 className="event-card-name">{event.name}</h3>
-                    <span className={`event-card-status ${statusClass[event.registrationState] || ''}`}>
-                      {statusLabel[event.registrationState] || event.registrationState}
-                    </span>
-                  </div>
-
-                  <p className="event-card-desc">{event.description}</p>
-
-                  <div className="event-card-meta">
-                    {event.eventDate && (
-                      <span>📅 {new Date(event.eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
-                    )}
-                    {event.registrationEnd && (
-                      <span>⏰ Deadline: {new Date(event.registrationEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                    )}
-                    {event.maxRegistrations && (
-                      <span>👥 {event.registrationCount}/{event.maxRegistrations} spots</span>
-                    )}
-                  </div>
-
-                  {event.registrationState === 'OPEN' ? (
-                    <a href={`/register/${event.slug}`} className="btn btn-primary btn-md" style={{ width: '100%', justifyContent: 'center' }}>
-                      Register Now →
-                    </a>
-                  ) : (
-                    <div className="btn btn-outline btn-md" style={{ width: '100%', justifyContent: 'center', cursor: 'not-allowed', opacity: 0.5 }}>
-                      {event.registrationState === 'NOT_STARTED' ? 'Opening Soon' : 'Registration Closed'}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 8 }}>
+                      <h3 className="event-card-name">{event.name}</h3>
+                      <span className={`event-card-status ${statusClass[event.registrationState] || ''}`}>
+                        {statusLabel[event.registrationState] || event.registrationState}
+                      </span>
                     </div>
-                  )}
+
+                    <p className="event-card-desc">
+                      {event.description || 'Official track registration for Next Gen Buildathon.'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <div className="event-card-meta">
+                      {event.eventDate && (
+                        <span>📅 {new Date(event.eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+                      )}
+                      {event.registrationEnd && (
+                        <span>⏰ Deadline: {new Date(event.registrationEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      )}
+                      {event.maxRegistrations && (
+                        <span>👥 {event.registrationCount}/{event.maxRegistrations} spots filled</span>
+                      )}
+                    </div>
+
+                    {event.registrationState === 'OPEN' ? (
+                      <a
+                        href={`/register/${event.slug}`}
+                        className="btn btn-primary btn-md"
+                        style={{ width: '100%', justifyContent: 'center' }}
+                      >
+                        Register Now →
+                      </a>
+                    ) : (
+                      <div
+                        className="btn btn-outline btn-md"
+                        style={{ width: '100%', justifyContent: 'center', cursor: 'not-allowed', opacity: 0.5 }}
+                      >
+                        {event.registrationState === 'NOT_STARTED' ? 'Opening Soon' : 'Registration Closed'}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -338,61 +232,126 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* ── Shortlisted Teams Section ─────────────────────────────── */}
-      <section className="events" id="shortlist" style={{ marginTop: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-          <span style={{ fontSize: 26 }}>🏆</span>
-          <h2 className="events-title" style={{ margin: 0 }}>Shortlisted Teams</h2>
-        </div>
-        <p style={{ color: 'var(--text-gray)', marginBottom: 28 }}>
-          Official results and shortlisted teams evaluated by the Next Gen Buildathon jury.
-        </p>
-
-        {!shortlistState.announced || shortlistState.teams.length === 0 ? (
-          <div style={{
-            background: 'linear-gradient(165deg, rgba(15,23,42,0.8) 0%, rgba(11,19,43,0.8) 100%)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 20, padding: '48px 32px', textAlign: 'center',
-            boxShadow: '0 12px 36px rgba(0,0,0,0.3)',
-          }}>
-            <div style={{ fontSize: 52, marginBottom: 16 }}>⏳</div>
-            <h3 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 10 }}>
-              Results will be announced soon
-            </h3>
-            <p style={{ color: '#94a3b8', fontSize: 15, maxWidth: 540, margin: '0 auto 24px', lineHeight: 1.6 }}>
-              The evaluation sheet is currently being reviewed by organizers and judges.
-              Shortlisted teams will be posted here as soon as evaluation concludes.
-            </p>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', padding: '8px 18px', borderRadius: 24, fontSize: 13, color: '#38bdf8' }}>
-              <span>📋</span>
-              <span>Evaluation in Progress</span>
+      {/* ── Admin Password Modal ────────────────────────── */}
+      {showAdminModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 5, 10, 0.88)',
+            backdropFilter: 'blur(12px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 20,
+          }}
+          onClick={() => setShowAdminModal(false)}
+        >
+          <div
+            style={{
+              background: '#061121',
+              border: '1px solid rgba(232, 78, 27, 0.4)',
+              borderRadius: 20,
+              padding: 36,
+              maxWidth: 420,
+              width: '100%',
+              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.8), 0 0 35px rgba(232, 78, 27, 0.15)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 24 }}>🛡️</span>
+                <h3 style={{ fontSize: 20, fontWeight: 800, color: '#fff', margin: 0 }}>
+                  Administrator Access
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdminModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  fontSize: 22,
+                  cursor: 'pointer',
+                }}
+              >
+                ✕
+              </button>
             </div>
-          </div>
-        ) : (
-          <div className="events-grid">
-            {shortlistState.teams.map((team, idx) => (
-              <div key={idx} className="event-card" style={{ border: '1px solid rgba(16,185,129,0.3)' }}>
-                <div className="event-card-content">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 8 }}>
-                    <h3 className="event-card-name" style={{ color: '#fff' }}>{team.teamName}</h3>
-                    <span style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
-                      ⭐ Shortlisted
-                    </span>
-                  </div>
-                  <p style={{ color: '#cbd5e1', fontSize: 14, marginBottom: 12 }}>
-                    Track: <strong style={{ color: '#38bdf8' }}>{team.domainName}</strong>
-                  </p>
-                  <div style={{ fontSize: 13, color: '#94a3b8' }}>
-                    Registration ID: <code style={{ color: '#38bdf8' }}>{team.registrationId}</code>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
 
-      {/* Footer */}
+            <p style={{ color: '#94a3b8', fontSize: 14, marginBottom: 22, lineHeight: 1.5 }}>
+              Enter the administrator password to access the NextGen management console.
+            </p>
+
+            <form onSubmit={handleAdminLogin}>
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#cbd5e1', marginBottom: 8 }}>
+                  Master Password
+                </label>
+                <input
+                  type="password"
+                  value={adminPassword}
+                  onChange={e => setAdminPassword(e.target.value)}
+                  placeholder="Enter administrator password..."
+                  autoFocus
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '13px 16px',
+                    background: 'rgba(2, 5, 10, 0.85)',
+                    border: '1px solid rgba(22, 59, 110, 0.6)',
+                    borderRadius: 10,
+                    color: '#fff',
+                    fontSize: 15,
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {adminError && (
+                <div
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    color: '#f87171',
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    fontSize: 13,
+                    marginBottom: 16,
+                  }}
+                >
+                  {adminError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminModal(false)}
+                  className="btn btn-outline"
+                  style={{ flex: 1, padding: '12px', fontSize: 13, justifyContent: 'center' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={adminLoading}
+                  className="btn btn-primary"
+                  style={{ flex: 2, padding: '12px', fontSize: 13, justifyContent: 'center' }}
+                >
+                  {adminLoading ? 'Verifying...' : 'Unlock Admin →'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Footer ──────────────────────────────────────── */}
       <footer className="footer">
         <p>© {new Date().getFullYear()} Next Gen Buildathon. All rights reserved.</p>
       </footer>

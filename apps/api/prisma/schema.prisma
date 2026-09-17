@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────
-// Next Gen Buildathon — Prisma Schema
+// Next Gen Buildathon — Streamlined Prisma Schema (SQLite)
 // ──────────────────────────────────────────────────────
 
 generator client {
@@ -7,94 +7,50 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-// ── Admins ───────────────────────────────────────────
+// ── Admin ─────────────────────────────────────────────
 
 model Admin {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  name          String
-  picture       String?
-  role          String    @default("VIEWER")   // SUPER_ADMIN | ADMIN | EDITOR | VIEWER
-  isActive      Boolean   @default(true)
-  isVerified    Boolean   @default(false)
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  email       String    @unique
+  name        String
+  role        String    @default("SUPER_ADMIN") // SUPER_ADMIN | ADMIN | VIEWER
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  sessions          AdminSession[]
-  auditLogs         AuditLog[]
   googleIntegration GoogleIntegration?
-  shortlistImports  ShortlistImport[]
 
   @@map("admins")
 }
 
-model AdminSession {
-  id        String   @id @default(uuid())
-  adminId   String
-  token     String   @unique
-  ipAddress String?
-  userAgent String?
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
-
-  @@index([token])
-  @@index([expiresAt])
-  @@map("admin_sessions")
-}
-
-// ── Verification Codes ───────────────────────────────
-
-model VerificationCode {
-  id          String   @id @default(uuid())
-  email       String
-  codeHash    String
-  attempts    Int      @default(0)
-  maxAttempts Int      @default(5)
-  expiresAt   DateTime
-  usedAt      DateTime?
-  createdAt   DateTime @default(now())
-
-  @@index([email, expiresAt])
-  @@map("verification_codes")
-}
-
-// ── Domains ──────────────────────────────────────────
+// ── Domains ───────────────────────────────────────────
 
 model Domain {
-  id                          String    @id @default(uuid())
-  name                        String
-  slug                        String    @unique
-  description                 String?   @db.Text
-  eventDate                   DateTime?
-  registrationStart           DateTime?
-  registrationEnd             DateTime?
-  maxRegistrations            Int?
-  status                      String    @default("ACTIVE")  // ACTIVE | INACTIVE | ARCHIVED
-  spreadsheetId               String?
-  worksheetName               String?
-  driveFolderId               String?
-  formId                      String?
-  registrationEmailTemplateId String?
-  shortlistEmailTemplateId    String?
-  registrationCount           Int       @default(0)
-  shortlistedCount            Int       @default(0)
-  createdAt                   DateTime  @default(now())
-  updatedAt                   DateTime  @updatedAt
-  deletedAt                   DateTime?
+  id               String    @id @default(uuid())
+  name             String
+  slug             String    @unique
+  description      String?
+  eventDate        DateTime?
+  registrationStart DateTime?
+  registrationEnd   DateTime?
+  maxRegistrations Int?
+  status           String    @default("ACTIVE") // ACTIVE | INACTIVE | ARCHIVED
+  spreadsheetId    String?
+  worksheetName    String?
+  formId           String?
+  registrationCount Int      @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
-  form              Form?            @relation(fields: [formId], references: [id])
-  registrations     Registration[]
-  emailTemplates    EmailTemplate[]
-  emailJobs         EmailJob[]
-  sheetSyncJobs     SheetSyncJob[]
-  shortlistImports  ShortlistImport[]
+  form          Form?          @relation(fields: [formId], references: [id])
+  registrations Registration[]
+  sheetSyncJobs SheetSyncJob[]
 
   @@index([slug])
   @@index([status])
@@ -102,13 +58,14 @@ model Domain {
   @@map("domains")
 }
 
-// ── Forms ────────────────────────────────────────────
+// ── Forms ─────────────────────────────────────────────
 
 model Form {
   id               String    @id @default(uuid())
   title            String
-  description      String?   @db.Text
-  status           String    @default("DRAFT")  // DRAFT | PUBLISHED | ARCHIVED
+  description      String?
+  status           String    @default("DRAFT") // DRAFT | PUBLISHED | ARCHIVED
+  isGlobal         Boolean   @default(false)
   currentVersionId String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -139,16 +96,15 @@ model FormVersion {
 model FormField {
   id            String  @id @default(uuid())
   formVersionId String
-  type          String  // FieldType enum value
+  type          String  // FieldType enum value: SHORT_TEXT, LONG_TEXT, EMAIL, PHONE, NUMBER, DROPDOWN, RADIO, CHECKBOX
   label         String
   name          String
-  description   String? @db.Text
+  description   String?
   placeholder   String?
   required      Boolean @default(false)
   order         Int
-  options       Json?   // string[] for dropdowns, radio, checkbox
-  validation    Json?   // FieldValidation object
-  conditionalOn Json?   // ConditionalRule object
+  options       String? // JSON string: string[] for DROPDOWN, RADIO, CHECKBOX
+  validation    String? // JSON string: FieldValidation object
 
   formVersion FormVersion @relation(fields: [formVersionId], references: [id], onDelete: Cascade)
 
@@ -156,30 +112,27 @@ model FormField {
   @@map("form_fields")
 }
 
-// ── Registrations ────────────────────────────────────
+// ── Registrations (Primary Source of Truth) ────────────
 
 model Registration {
-  id              String    @id @default(uuid())
-  registrationId  String    @unique          // Human-readable: NGB-000123
-  domainId        String
-  formVersionId   String
-  teamName        String?
-  teamLeaderName  String?
-  email           String
-  phone           String?
-  status          String    @default("REGISTERED")   // RegistrationStatus
-  syncStatus      String    @default("PENDING_SYNC") // SyncStatus
-  syncedAt        DateTime?
-  values          Json      @default("{}")   // All form field answers
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
-  deletedBy       String?
-  deletionReason  String?
+  id             String    @id @default(uuid())
+  registrationId String    @unique // Human-readable: NGB-YYMMDD-NNNNN
+  domainId       String
+  formVersionId  String
+  teamName       String?
+  teamLeaderName String?
+  email          String
+  phone          String?
+  status         String    @default("REGISTERED") // RegistrationStatus
+  syncStatus     String    @default("PENDING_SYNC") // SyncStatus: PENDING_SYNC, SYNCED, SYNC_FAILED
+  syncedAt       DateTime?
+  values         String    @default("{}") // JSON string: All form responses
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
-  domain        Domain        @relation(fields: [domainId], references: [id])
-  formVersion   FormVersion   @relation(fields: [formVersionId], references: [id])
-  emailJobs     EmailJob[]
+  domain        Domain         @relation(fields: [domainId], references: [id])
+  formVersion   FormVersion    @relation(fields: [formVersionId], references: [id])
   sheetSyncJobs SheetSyncJob[]
 
   @@unique([domainId, email, deletedAt])
@@ -194,103 +147,19 @@ model Registration {
   @@map("registrations")
 }
 
-// ── Email Templates ──────────────────────────────────
-
-model EmailTemplate {
-  id         String   @id @default(uuid())
-  name       String
-  type       String   // EmailType enum
-  domainId   String?
-  subject    String
-  htmlBody   String   @db.Text
-  textBody   String?  @db.Text
-  senderName String?
-  replyTo    String?
-  isActive   Boolean  @default(true)
-  variables  Json     @default("[]") // string[]
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  domain    Domain?    @relation(fields: [domainId], references: [id])
-  emailJobs EmailJob[]
-
-  @@index([type, domainId])
-  @@map("email_templates")
-}
-
-// ── Email Jobs (Queue) ───────────────────────────────
-
-model EmailJob {
-  id             String    @id @default(uuid())
-  templateId     String?
-  registrationId String?
-  domainId       String?
-  type           String    // EmailType
-  recipient      String
-  subject        String
-  htmlBody       String    @db.Text
-  textBody       String?   @db.Text
-  senderName     String?
-  replyTo        String?
-  status         String    @default("QUEUED") // EmailStatus
-  retryCount     Int       @default(0)
-  maxRetries     Int       @default(3)
-  error          String?   @db.Text
-  sentAt         DateTime?
-  scheduledAt    DateTime  @default(now())
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  template     EmailTemplate? @relation(fields: [templateId], references: [id])
-  registration Registration?  @relation(fields: [registrationId], references: [id])
-  domain       Domain?        @relation(fields: [domainId], references: [id])
-  logs         EmailLog[]
-
-  @@index([status])
-  @@index([scheduledAt])
-  @@index([recipient])
-  @@map("email_jobs")
-}
-
-// ── Email Logs ───────────────────────────────────────
-
-model EmailLog {
-  id             String    @id @default(uuid())
-  jobId          String
-  recipient      String
-  type           String    // EmailType
-  templateName   String?
-  domainId       String?
-  registrationId String?
-  status         String    // EmailStatus
-  sentAt         DateTime?
-  retryCount     Int       @default(0)
-  error          String?   @db.Text
-  createdAt      DateTime  @default(now())
-
-  job EmailJob @relation(fields: [jobId], references: [id])
-
-  @@index([recipient])
-  @@index([type])
-  @@index([status])
-  @@index([createdAt])
-  @@map("email_logs")
-}
-
-// ── Google Integration ───────────────────────────────
+// ── Google Integration (Sheets Storage Only) ──────────
 
 model GoogleIntegration {
   id              String    @id @default(uuid())
   adminId         String    @unique
   email           String
-  accessToken     String    @db.Text  // Encrypted
-  refreshToken    String    @db.Text  // Encrypted
+  accessToken     String
+  refreshToken    String
   tokenExpiry     DateTime
-  scopes          Json      @default("[]")
+  scopes          String    @default("[]") // JSON string
   isActive        Boolean   @default(true)
-  sheetsConnected Boolean   @default(false)
-  driveConnected  Boolean   @default(false)
-  gmailConnected  Boolean   @default(false)
+  sheetsConnected Boolean   @default(true)
+  spreadsheetId   String?
   lastTestedAt    DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -300,7 +169,7 @@ model GoogleIntegration {
   @@map("google_integrations")
 }
 
-// ── Sheet Sync Jobs ──────────────────────────────────
+// ── Sheet Sync Jobs ───────────────────────────────────
 
 model SheetSyncJob {
   id             String    @id @default(uuid())
@@ -310,93 +179,25 @@ model SheetSyncJob {
   worksheetName  String
   status         String    @default("PENDING_SYNC") // SyncStatus
   retryCount     Int       @default(0)
-  error          String?   @db.Text
+  error          String?
   syncedAt       DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  registration Registration @relation(fields: [registrationId], references: [id])
-  domain       Domain       @relation(fields: [domainId], references: [id])
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  domain       Domain       @relation(fields: [domainId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([registrationId])
   @@map("sheet_sync_jobs")
 }
 
-// ── Shortlist Imports ────────────────────────────────
-
-model ShortlistImport {
-  id            String    @id @default(uuid())
-  domainId      String
-  adminId       String
-  filename      String
-  status        String    @default("PENDING") // ImportStatus
-  totalRows     Int       @default(0)
-  validRows     Int       @default(0)
-  invalidRows   Int       @default(0)
-  duplicateRows Int       @default(0)
-  unmatchedRows Int       @default(0)
-  committedRows Int       @default(0)
-  columnMapping Json      @default("{}")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  domain Domain @relation(fields: [domainId], references: [id])
-  admin  Admin  @relation(fields: [adminId], references: [id])
-  rows   ShortlistImportRow[]
-
-  @@index([domainId])
-  @@index([status])
-  @@map("shortlist_imports")
-}
-
-model ShortlistImportRow {
-  id                    String  @id @default(uuid())
-  importId              String
-  rowNumber             Int
-  data                  Json    @default("{}")
-  status                String  @default("VALID") // ImportRowStatus
-  matchedRegistrationId String?
-  error                 String?
-  createdAt             DateTime @default(now())
-
-  import ShortlistImport @relation(fields: [importId], references: [id], onDelete: Cascade)
-
-  @@index([importId, status])
-  @@map("shortlist_import_rows")
-}
-
-// ── Audit Logs ───────────────────────────────────────
-
-model AuditLog {
-  id         String   @id @default(uuid())
-  adminId    String
-  adminEmail String
-  action     String
-  resource   String
-  resourceId String?
-  oldValue   Json?
-  newValue   Json?
-  ipAddress  String?
-  userAgent  String?
-  result     String   @default("SUCCESS") // SUCCESS | FAILURE
-  createdAt  DateTime @default(now())
-
-  admin Admin @relation(fields: [adminId], references: [id])
-
-  @@index([adminId])
-  @@index([action])
-  @@index([resource])
-  @@index([createdAt])
-  @@map("audit_logs")
-}
-
-// ── System Settings ──────────────────────────────────
+// ── System Settings ───────────────────────────────────
 
 model SystemSetting {
-  id    String @id @default(uuid())
-  key   String @unique
-  value Json
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String   @default("{}") // JSON string
   updatedAt DateTime @updatedAt
 
   @@map("system_settings")
