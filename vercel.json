@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm --filter @ngb/shared build && pnpm --filter @ngb/public build",
+  "outputDirectory": "apps/public/.next",
+  "framework": "nextjs"
+}
