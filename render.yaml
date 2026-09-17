@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: nextgen-buildathon-api
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm --filter @ngb/shared build && pnpm --filter @ngb/api build && pnpm --filter @ngb/api prisma:generate
+    startCommand: pnpm --filter @ngb/api start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: 10000
+      - key: DATABASE_URL
+        value: file:./dev.db
+      - key: ADMIN_PASSWORD
+        value: Admin@NextGen2026!
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_URL
+        sync: false
