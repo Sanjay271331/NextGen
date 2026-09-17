@@ -1,0 +1,32 @@
+{
+  "name": "next-gen-buildathon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Next Gen Buildathon — Secure Hackathon Registration & Admin Platform",
+  "scripts": {
+    "dev": "concurrently -n api,admin,public -c blue,green,cyan \"pnpm --filter @ngb/api dev\" \"pnpm --filter @ngb/admin dev\" \"pnpm --filter @ngb/public dev\"",
+    "dev:api": "pnpm --filter @ngb/api dev",
+    "dev:admin": "pnpm --filter @ngb/admin dev",
+    "dev:public": "pnpm --filter @ngb/public dev",
+    "build": "pnpm --filter @ngb/shared build && pnpm --filter @ngb/api build && pnpm --filter @ngb/admin build && pnpm --filter @ngb/public build",
+    "build:api": "pnpm --filter @ngb/api build",
+    "build:admin": "pnpm --filter @ngb/admin build",
+    "build:public": "pnpm --filter @ngb/public build",
+    "db:generate": "pnpm --filter @ngb/api prisma:generate",
+    "db:migrate": "pnpm --filter @ngb/api prisma:migrate",
+    "db:seed": "pnpm --filter @ngb/api prisma:seed",
+    "db:studio": "pnpm --filter @ngb/api prisma:studio",
+    "db:reset": "pnpm --filter @ngb/api prisma:reset",
+    "test": "pnpm --filter @ngb/api test",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r clean"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "typescript": "^5.6.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
